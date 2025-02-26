@@ -1,3 +1,7 @@
+
+#install req dependencies on venv
+#localhost:5000 should show connect, /buildings returns query in html /building/<id> (currently 1 2 or 3 should return json data)
+
 import psycopg2
 from flask import Flask, render_template
 
