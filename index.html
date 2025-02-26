@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Buildings</title>
+</head>
+<body>
+    <h1>Building List</h1>
+    <ul>
+        {% for building in buildings %}
+            <li>
+                <strong>{{ building[1] }}</strong><br>
+                {{ building[2] }}<br>
+                Location: {{ building[3] }}<br>  <!-- Displays the geography data as WKT -->
+            </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
