@@ -1,60 +1,78 @@
-
-#install req dependencies on venv
-#localhost:5000 should show connect, /buildings returns query in html /building/<id> (currently 1 2 or 3 should return json data)
-
 import psycopg2
-from flask import Flask, render_template
-
-DB_URI = "postgresql://cmsc447db:cmsc447db@cmsc447.cpa4aoaw6a8r.us-east-2.rds.amazonaws.com:5432/postgres"
+from flask import Flask, render_template, jsonify
 
 app = Flask(__name__)
 
+# Db connect if better way to do then lmk
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(
+            host='cmsc447.cpa4aoaw6a8r.us-east-2.rds.amazonaws.com',
+            dbname='postgres',
+            user='cmsc447db',
+            password='cmsc447db',
+            port=5432,
+            sslmode='require'
+        )
+        return conn
+    except Exception as e:
+        print(f"Failed to connect to the database: {e}")
+        return None
+
 @app.route('/')
 def home():
+    return render_template('index.html')
+
+# fetch building, lcoation
+@app.route('/all-buildings')
+def all_buildings():
     try:
-        conn = psycopg2.connect(
-            host='cmsc447.cpa4aoaw6a8r.us-east-2.rds.amazonaws.com',
-            dbname='postgres',
-            user='cmsc447db',
-            password='cmsc447db',
-            port=5432,
-            sslmode='require'  # if ssl
-        )
-        conn.close()
-        return "Connected to AWS RDS PostgreSQL"
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({"error": "Database connection failed"}), 500
+        
+        cursor = conn.cursor()
+        
+        query = """ commented this out what is going on
+        SELECT 
+            building_id, 
+            building_name, 
+            ST_X(ST_Transform(building_location::geometry, 4326)) AS longitude, 
+            ST_Y(ST_Transform(building_location::geometry, 4326)) AS latitude
+        FROM buildings;
+        """
+        
+        cursor.execute(query)
+        rows = cursor.fetchall()
 
-    except Exception as e:
-        return f"Failed to connect: {e}"
+        buildings = [
+            {
+                "building_id": row[0],
+                "building_name": row[1],
+                "longitude": row[2],
+                "latitude": row[3]
+            }
+            for row in rows if row[2] and row[3]
+        ]
 
-@app.route('/buildings')
-def show_buildings():
-    try:
-        # Connect to db
-        conn = psycopg2.connect(
-            host='cmsc447.cpa4aoaw6a8r.us-east-2.rds.amazonaws.com',
-            dbname='postgres',
-            user='cmsc447db',
-            password='cmsc447db',
-            port=5432,
-            sslmode='require' 
-        )
-
-        cur = conn.cursor()
-
-        # Execute a query to get all buildings
-        cur.execute("SELECT building_id, name, description, ST_AsText(location) AS location FROM buildings ORDER BY building_id ASC")
-        buildings = cur.fetchall()
-
-        # Clean
-        cur.close()
+        cursor.close()
         conn.close()
 
-        # Pass the buildings data to the template
-        return render_template('index.html', buildings=buildings)
+        print("Buildings Data Sent:", buildings)  # Debugging
 
+        return jsonify(buildings)
+    
     except Exception as e:
-        return f"Error fetching buildings: {e}"
+        print("Error fetching all buildings:", e)
+        return jsonify({"error": str(e)}), 500
 
-# Run inital
+# Run flask app
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)
+
+
+"""
+UPDATE buildings 
+SET building_location = ST_SetSRID(ST_MakePoint(-76.7423, 39.2550), 4326) 
+WHERE building_id = 1;
+"""

@@ -1,19 +1,228 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Buildings</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UMBC Building Locations Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    
+    h1 {
+      color: #333;
+      text-align: center;
+    }
+    
+    #map {
+      height: 500px;
+      width: 100%;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .controls {
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .search-container {
+      flex-grow: 1;
+      margin-right: 20px;
+    }
+    
+    #search-input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    
+    #building-list {
+      margin-top: 20px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 15px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .building-item {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+    }
+    
+    .building-item:hover {
+      background-color: #f5f5f5;
+    }
+    
+    .building-item:last-child {
+      border-bottom: none;
+    }
+  </style>
 </head>
 <body>
-    <h1>Building List</h1>
-    <ul>
-        {% for building in buildings %}
-            <li>
-                <strong>{{ building[1] }}</strong><br>
-                {{ building[2] }}<br>
-                Location: {{ building[3] }}<br>  <!-- Displays the geography data as WKT -->
-            </li>
-        {% endfor %}
-    </ul>
+  <h1>UMBC Building Locations</h1>
+  
+  <div class="controls">
+    <div class="search-container">
+      <input type="text" id="search-input" placeholder="Search for buildings..." />
+    </div>
+    <button id="reset-view">Reset Map View</button>
+  </div>
+  
+  <div id="map"></div>
+  
+  <div id="building-list"></div>
+  
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // Initialize the map, centered on UMBC
+    var map = L.map('map').setView([39.2555, -76.711], 16);
+    
+    // Add OpenStreetMap tiles to the map
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    
+    // Store all buildings and markers for search functionality
+    var allBuildings = [];
+    var markers = {};
+    
+    // Function to fetch building locations and add them as markers
+    function loadBuildingLocations() {
+      fetch('/buildings/locations')
+        .then(response => response.json())
+        .then(data => {
+          if (data && Array.isArray(data)) {
+            // Store the buildings data
+            allBuildings = data;
+            
+            data.forEach(building => {
+              var lat = building.latitude;
+              var lon = building.longitude;
+              var buildingId = building.building_id;
+              
+              // Add marker for each building
+              var marker = L.marker([lat, lon]).addTo(map);
+              
+              // Store the marker reference for later use
+              markers[buildingId] = marker;
+              
+              // Create a popup that loads data when clicked
+              marker.on('click', function() {
+                loadBuildingDetails(buildingId, marker);
+              });
+            });
+            
+            // After loading all buildings, fetch their full details to enable search
+            fetchAllBuildingDetails();
+          } else {
+            console.error('Invalid data structure:', data);
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching building locations:', error);
+        });
+    }
+    
+    // Function to load building details and bind them to a marker
+    function loadBuildingDetails(buildingId, marker) {
+      fetch(`/building/${buildingId}`)
+        .then(response => response.json())
+        .then(buildingData => {
+          marker.bindPopup(`
+            <h3>${buildingData.building_name}</h3>
+            <p>${buildingData.building_description}</p>
+            <p><strong>Address:</strong> ${buildingData.building_address || 'N/A'}</p>
+            <p><strong>Floors:</strong> ${buildingData.building_floors || 'N/A'}</p>
+            <p><strong>Accessibility:</strong> ${buildingData.building_accessibility_info || 'N/A'}</p>
+          `).openPopup();
+        })
+        .catch(error => console.error('Error fetching building details:', error));
+    }
+    
+    // Store complete building details for search
+    var buildingDetails = {};
+    
+    // Fetch all building details for search functionality
+    function fetchAllBuildingDetails() {
+      // We'll create a list of promises to fetch all building details
+      const fetchPromises = allBuildings.map(building => 
+        fetch(`/building/${building.building_id}`)
+          .then(response => response.json())
+          .then(data => {
+            buildingDetails[building.building_id] = data;
+            return data;
+          })
+      );
+      
+      // Once all details are fetched, populate the building list
+      Promise.all(fetchPromises)
+        .then(results => {
+          updateBuildingList(Object.values(buildingDetails));
+        })
+        .catch(error => {
+          console.error('Error fetching all building details:', error);
+        });
+    }
+    
+    // Update the building list with search results
+    function updateBuildingList(buildings) {
+      const buildingList = document.getElementById('building-list');
+      buildingList.innerHTML = '';
+      
+      buildings.forEach(building => {
+        const buildingItem = document.createElement('div');
+        buildingItem.className = 'building-item';
+        buildingItem.innerHTML = `<strong>${building.building_name}</strong>`;
+        
+        buildingItem.addEventListener('click', () => {
+          // Center the map on this building
+          map.setView([building.latitude, building.longitude], 18);
+          
+          // Open the popup for this building
+          if (markers[building.building_id]) {
+            loadBuildingDetails(building.building_id, markers[building.building_id]);
+          }
+        });
+        
+        buildingList.appendChild(buildingItem);
+      });
+    }
+    
+    // Search functionality
+    document.getElementById('search-input').addEventListener('input', function(e) {
+      const searchTerm = e.target.value.toLowerCase();
+      
+      if (searchTerm.length === 0) {
+        // If search is cleared, show all buildings
+        updateBuildingList(Object.values(buildingDetails));
+        return;
+      }
+      
+      // Filter buildings by name
+      const filteredBuildings = Object.values(buildingDetails).filter(building => 
+        building.building_name.toLowerCase().includes(searchTerm)
+      );
+      
+      updateBuildingList(filteredBuildings);
+    });
+    
+    // Reset map view
+    document.getElementById('reset-view').addEventListener('click', function() {
+      map.setView([39.2555, -76.711], 16);
+    });
+    
+    // Load the building locations when the page is loaded
+    loadBuildingLocations();
+  </script>
 </body>
 </html>
