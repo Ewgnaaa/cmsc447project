@@ -33,7 +33,7 @@ def all_buildings():
         
         cursor = conn.cursor()
         
-        query = """ commented this out what is going on
+        query = """
         SELECT 
             building_id, 
             building_name, 
