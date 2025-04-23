@@ -1,0 +1,264 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UMBC Building Locations Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    #map {
+      height: 500px;
+      width: 100%;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+
+    .search-container {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    #search-input {
+      padding: 8px;
+      width: 300px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+
+    #building-list {
+      margin-top: 20px;
+      border-top: 1px solid #eee;
+      padding-top: 20px;
+    }
+
+    .building-item {
+      padding: 10px;
+      margin-bottom: 5px;
+      border-radius: 4px;
+      cursor: pointer;
+      background-color: #eee;
+    }
+
+    .building-item:hover {
+      background-color: #ddd;
+    }
+
+    .go-to-btn {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      cursor: pointer;
+      border-radius: 4px;
+      margin-left: 10px;
+    }
+
+    .go-to-btn:hover {
+      background-color: #45a049;
+    }
+  </style>
+</head>
+<body>
+  <h1>UMBC Building Locations</h1>
+
+  <div class="search-container">
+    <input type="text" id="search-input" placeholder="Search for buildings..." />
+  </div>
+
+  <div id="map"></div>
+  <div id="building-list"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+
+    // Initialize the map, centered on UMBC
+    var map = L.map('map').setView([39.2555, -76.711], 16);
+
+    // Add OpenStreetMap tiles to the map
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Add layder
+    const buildingLayers = {
+      "general": L.layerGroup().addTo(map),
+    };
+
+    let allBuildings = [];
+
+    // Function to fetch building locations and add them as marke
+    function loadBuildingData() {
+      fetch('/all-buildings')
+        .then(response => response.json())
+        .then(buildings => {
+          // Store the buildings data
+          allBuildings = buildings;
+
+          buildings.forEach(building => {
+            const marker = L.marker([building.latitude, building.longitude]);
+
+            let popupContent = `<strong>${building.building_name}</strong><br>${building.building_description || 'No description available.'}`;
+            if (building.building_floors) popupContent += `<br>Floors: ${building.building_floors}`;
+            if (building.building_accessibility_info) popupContent += `<br>Accessibility: ${building.building_accessibility_info}`;
+
+            marker.bindPopup(popupContent);
+
+            const category = building.category || "general";
+            if (!buildingLayers[category]) {
+              buildingLayers[category] = L.layerGroup().addTo(map);
+            }
+
+            buildingLayers[category].addLayer(marker);
+          });
+
+          updateBuildingList(buildings);
+        })
+        .catch(error => {
+          console.error('Error fetching building data:', error);
+        });
+    }
+
+    // Load GeoJSON footways(newer part)
+    function loadWalkways() {
+      fetch('/geojson')
+        .then(response => response.json())
+        
+        .then(geojsonData => {
+          L.geoJSON(geojsonData, {
+            style: {
+              color: '#2E8B57',
+              weight: 3
+            }
+          }).addTo(map);
+        })
+        .catch(error => {
+          console.error('Error loading footways GeoJSON:', error);
+        });
+    }
+
+    // List update with goto button here
+    function updateBuildingList(buildings) {
+      const buildingList = document.getElementById('building-list');
+      buildingList.innerHTML = '';
+
+      buildings.forEach(building => {
+        const item = document.createElement('div');
+        item.className = 'building-item';
+        item.textContent = building.building_name;
+
+        // Add goto button
+        const goToButton = document.createElement('button');
+        goToButton.className = 'go-to-btn';
+        goToButton.textContent = 'Go to';
+        
+        goToButton.addEventListener('click', () => {
+          // Start navigation to this building
+          startNavigation(building.latitude, building.longitude);
+        });
+
+        item.appendChild(goToButton);
+        buildingList.appendChild(item);
+      });
+    }
+
+    // Start navigation function
+    // Start navigation function
+function startNavigation(buildingLat, buildingLng) {
+  // Get user location (use browser geolocation API)
+  navigator.geolocation.getCurrentPosition(function(position) {
+    const userLocation = [position.coords.latitude, position.coords.longitude];
+    const accuracy = position.coords.accuracy;  // Get the accuracy in meters
+
+    // Log the user location and accuracy
+    console.log('User location:', userLocation);
+    console.log('Accuracy (in meters):', accuracy);
+
+    // Accuracy check(this is wild)
+    if (window.accuracyCircle) {
+      map.removeLayer(window.accuracyCircle);  // Rm accuracy layer prev
+    }
+
+    // Add a circle marker to represent the accuracy radius
+    window.accuracyCircle = L.circle(userLocation, {
+      color: 'blue',
+      fillColor: 'blue',
+      fillOpacity: 0.2,
+      radius: accuracy  // Set radius based meters
+    }).addTo(map);
+
+    // Make POST req to backend for navigation data
+    fetch('/navigate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_location: userLocation,
+        building_location: [buildingLat, buildingLng]
+      })
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Failed to fetch navigation data');
+      }
+      return response.json();
+    })
+    .then(data => {
+      console.log("Received route GeoJSON:", data);
+
+      if (data.error) {
+        console.error('Error from backend:', data.error);
+        return;
+      }
+
+      // Clear previous path
+      if (window.routeLayer) {
+        map.removeLayer(window.routeLayer);
+      }
+
+      // Based on GEOJSON reconstruct
+      if (data && data.features) {
+        window.routeLayer = L.geoJSON(data).addTo(map);
+      } else {
+        console.error('Invalid route data received:', data);
+      }
+    })
+    .catch(error => {
+      console.error('Error fetching navigation data:', error);
+    });
+  }, function(error) {
+    console.error('Error getting geolocation:', error);
+  }, {
+    enableHighAccuracy: true,  // high accuracy,
+    timeout: 20000,  // 5sec timeout,
+    maximumAge: 0  // get new lcoation
+  });
+}
+
+
+    // Search filter for building list
+    document.getElementById('search-input').addEventListener('input', event => {
+      const term = event.target.value.toLowerCase();
+      const filtered = allBuildings.filter(b => b.building_name.toLowerCase().includes(term));
+      updateBuildingList(term === '' ? allBuildings : filtered);
+    });
+
+    // Call to load building data and walkways
+    loadBuildingData();
+    loadWalkways();
+
+  </script>
+</body>
+</html>
+
